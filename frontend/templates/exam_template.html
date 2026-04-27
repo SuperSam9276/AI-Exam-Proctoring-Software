@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset = "UTF-8">
+        <title>{{exam_title}} - AI Proctor</title>
+        <style>
+            * {
+                box-sizing: border-box;
+                margin: 0;
+                padding: 0;
+            }
+            body {
+                font-family: "Segoe UI", sans-serif;
+                background: #0f1117; color: #e8eaf0;
+                min-height: 100vh;
+            }
+            .top-bar{
+                background: #161b26;
+                border-bottom: 1px solid #2a3040;
+                padding: 15px 30px;
+                display: flex;
+                align-items: center;
+                font-size: 24px;
+                font-weight: bold;
+                justify-content: space-between;
+            }
+            .exam-title{
+                font-size: 20px;
+                font-weight: 700;
+            }
+            .timer{
+                font-family: monospace;
+                font-size: 22px;
+                font-weight: 600;
+                color: #4ade80;
+                background: rgba(74, 222, 128, 0.2);
+                border: 1px solid rgba(74, 222, 128, 0.4);
+                padding: 5px 15px;
+                border-radius: 8px;
+            }
+            .timer_warning{
+                color: #f59e0b;
+                border-color: rgba(245, 158, 11, 0.3);
+            }
+            .timer_danger{
+                color: #ef4444;
+                border-color: rgba(239, 68, 68, 0.3);
+            }
+            .layout{
+                display: grid;
+                grid-template-columns: 1fr 300px;
+                gap: 0;
+                height: calc(100vh - 60px);
+            }
+            .question_panel{
+                padding: 28px 36px;
+                overflow-y: auto;
+            }
+            .question_card{
+                background: #161b26;
+                border: 1px solid #2a3040;
+                border-radius: 12px;
+                padding: 20px 28px;
+                margin-bottom: 20px;
+            }
+            .q-num{
+                font-size: 11px;
+                font-family: monospace;
+                font-weight: 600;
+                color: #60a5fa;
+                letter-spacing: 2px;
+                text-transform: uppercase;
+                margin-bottom: 8px;
+            }
+            .q-text{
+                font-size: 18px;
+                line-height: 1.6;
+                margin-bottom: 18px;
+                color: #c8d0e0;
+            }
+            .option{
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                padding: 12px 16px;
+                border: 1px solid #2a3040;
+                border-radius: 8px;
+                margin-bottom: 12px;
+                cursor: pointer;
+                transition: all 0.15s ease-in-out;
+                font-size: 16px;
+            }
+            .option:hover{
+                border-color: #4ade80;
+                background: rgba(74, 222, 128, 0.04);
+            }
+            .option input{
+                accent-color: #4ade80;
+                width: 16px;
+                height: 16px;
+            }
+            .sidebar-panel{
+                background: #161b26;
+                border-left: 1px solid #2a3040;
+                padding: 20px;
+                display: flex;
+                flex-direction: column;
+                gap: 20px;
+            }
+            .webcam-box{
+                background: #0a0d14;
+                border: 1px solid #2a3040;
+                border-radius: 12px;
+                overflow: hidden;
+                aspect-ratio: 4 / 3;
+                position: relative;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            #webcam{
+                width: 100%;
+                height: 100%;
+                object-fit: cover;
+            }
+            .webcam-label{
+                position: absolute;
+                bottom: 8px;
+                left: 8px;
+                font-family: monospace;
+                width: 100%;
+                background: rgba(0,0,0,0.7);
+                color: #4ade80;
+                font-size: 12px;
+                padding: 4px 8px;
+                border-radius: 4px;
+                letter-spacing: 1px;
+            }
+            .status-card{
+                background: #0a0d14;
+                border: 1px solid #2a3040;
+                border-radius: 12px;
+                padding: 14px;
+            }
+            .status-label{
+                font-size: 11px;
+                font-family: monospace;
+                font-weight: 600;
+                color: #4a5568;
+                letter-spacing: 2px;
+                text-transform: uppercase;
+                margin-bottom: 6px;
+            }
+            .status-value{
+                font-size: 16px;
+                font-weight: 600;
+                font-family: monospace;
+                color: #4ade80;
+            }
+            .status-value.caution{
+                color: #f59e0b;
+            }
+            .status-value.warning{
+                color: #ef4444;
+            }
+            .status-value.alert{
+                color: #dc2626;
+            }
+            .status-value.critical{
+                color: #991b1b;
+            }
+            .submit-btn{
+            background: #4ade80;
+            color:#0a0d14;
+            border: none;
+            border-radius: 8px;
+            padding: 12px;
+            font-size: 16px;
+            font-weight: 800;
+            cursor: pointer;
+            transition: all 0.15s ease-in-out;
+            width: 100%;
+            }
+            .submit-btn:hover{
+                background: #86efac;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="top-bar">
+            <div class="exam-title">{{exam_title}}</div>
+            <div id="timer" class="timer">{{ duration_mins }}:00</div>
+            <div style="font-size: 14px; color: #4a5568; font-family: monospace;">Logged in as {{user_name}}</div>
+        </div>
+        <div class="layout">
+           <!--Question Panel-->
+            <div class="question_panel">
+                {% for q in questions %}
+                <div class="question_card">
+                    <div class="q-num">Question {{loop.index}} of {{questions|length}}</div>
+                    <div class="q-text">{{ q.text }}</div>
+                    {% for opt in q.options %}
+                    <label class="option">
+                        <input type="radio" name="q{{loop.index0}}" value="{{loop.index0}}">
+                         {{ opt }}
+                    </label>
+                    {% endfor %}
+                </div>
+                {% endfor %}
+                </div>
+            <!--SIDEBAR PANEL-->
+            <div class="sidebar-panel">
+                <div class="webcam-box">
+                    <video id="webcam" autoplay muted playsinline></video>
+                    <div class="webcam-label">• LIVE</div>
+                </div>
+                <div class="status-card">
+                    <div class="status-label">Integrity Score</div>
+                    <div id="score-display" class="status-value">CLEAR</div>
+                </div>
+                <button class="submit-btn" onclick="submitExam()">
+                    Submit Exam
+                </button>
+            </div>
+
+        </div>
+        <script src="/static/anticheat.js"></script>
+        <script>
+            // Initialize anticheat with session ID and WebSocket URL for real-time updates
+            const sessionId = "{{session_id}}";
+            const token = "{{token}}";
+            const durationMins = parseInt("{{duration_minutes}}", 10);
+
+            AntiCheat.init(sessionId, token);
+
+                async function startwebcam(){
+                    try {
+                        const stream= await navigator.mediaDevices.getUserMedia({
+                            video:{
+                                width: { ideal: 640 },
+                                height: { ideal: 480 },
+                                facingMode: "user"
+                            },
+                            audio: false
+                        });
+
+                        const videoEl=document.getElementById("webcam");
+                        videoEl.srcObject=stream;
+
+                        window.webcamStream = stream; // Store stream globally for later access (e.g., to stop it on exam submission)
+
+                        setTimeout(()=> 
+                            setInterval(captureAndSendFrame, 5000) // Capture and send a frame every 5 seconds
+                        , 2000); // Start capturing frames after a short delay to allow webcam to initialize
+                        console.log("Webcam access granted and stream started.");
+                    } catch (err) {
+                        if (err.name === "NotAllowedError") {
+                            AntiCheat.sendEvent('camera_blocked') // Send violation to server if webcam access is blocked
+                            document.querySelector('.webcam-box').innerHTML =`
+                                <div style = "color: #ef4444; font-family: monospace; font-size: 14px; text-align: center; padding: 20px;">
+                                    ⚠ Camera access blocked<br>
+                                    <span style="font-weight: bold; color: #666; font-size: 12px;">Please allow access and refresh</span>
+                                </div>
+                            `;
+                        } else {
+                            console.error("Error accessing webcam: ", err);
+                            alert("An error occurred while accessing the webcam. Please try again.");
+                        }
+                        console.error("Webcam access error: ", err);
+                    }
+                }
+                
+                startwebcam();
+
+
+                const canvas = document.createElement('canvas');
+                canvas.width = 640;
+                canvas.height = 480;
+                const ctx = canvas.getContext('2d');
+                async function captureAndSendFrame() {
+                    const videoEl = document.getElementById('webcam');
+                    if(!videoEl.srcObject || videoEl.readyState < 2){
+                        console.warn("Webcam stream not available for capturing frames.");
+                        return;
+                    }
+                    if (window.webcamStream) {
+                        ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
+                        const frameData = canvas.toDataURL('image/jpeg', 0.7); // Capture frame as JPEG with quality 0.7
+                        AntiCheat.sendFrame(frameData); // Send frame to server for analysis
+                    }
+                }
+
+                // Timer countdown logic
+                const timerEl = document.getElementById("timer");
+                let timerInterval = null;
+                let timeRemaining = 0;
+
+                if (isNaN(durationMins) || durationMins <= 0) {
+                    timerEl.textContent = "??:??";
+                    timerEl.className = "timer timer_danger";
+                    console.error("Invalid duration " + durationMins + " provided for the exam timer.");
+
+                } else {
+                    timeRemaining = durationMins * 60; // convert minutes to seconds
+                    
+                    function formatTime(seconds) {
+                        const mins = Math.floor(seconds / 60).toString().padStart(2, '0');
+                        const secs = (seconds % 60).toString().padStart(2, '0');
+                        return `${mins}:${secs}`;
+                    }
+                    
+                    timerEl.textContent = formatTime(timeRemaining);
+
+                    timerInterval = setInterval(() => {
+                        timeRemaining--;
+                        timerEl.textContent = formatTime(timeRemaining);
+
+                        // Change timer color based on remaining time
+                        if (timeRemaining <= 300) timerEl.className = "timer timer_warning"; // less than 5 mins
+                        if (timeRemaining <= 60) timerEl.className = "timer timer_danger";    // less than 1 min
+                        if (timeRemaining <= 0) {
+                            clearInterval(timerInterval);
+                            timerEl.textContent = "00:00";
+                            timerInterval = null;
+                            submitExam(); // auto-submit when time runs out
+                        }
+                    }, 1000);
+                }
+
+                function submitExam() {
+                    if (timerInterval){
+                        clearInterval(timerInterval); // stop the timer
+                        timerInterval = null;
+                    }
+                    
+                    var btn = document.querySelector('.submit-btn');
+                    if (btn){
+                        btn.disabled = true; // Removing Double Submission of the Exam
+                        btn.textContent = "Submitting...";
+                        clearInterval(timerInterval); // stop the timer
+                    }
+
+                    alert("Exam submitted! Thank you.");
+                    // Here you can add logic to collect answers and send them to the server
+                }
+
+               
+        </script>
+    </body>
+</html>

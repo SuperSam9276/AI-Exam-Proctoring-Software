@@ -5,3 +5,5 @@
 #python bytecode
 __pycache__/
 *.py[cod]
+
+Backup.txt
