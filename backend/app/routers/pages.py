@@ -26,7 +26,7 @@ def exam_page(request: Request, session_id: str):
         "user_name": "John Doe",
         "duration_minutes": 10,
         "session_id": session_id,
-        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIwMGY0ZDBiNS03NjlhLTRmOTQtODExMC1hNmI3NmIzMmUzYTQiLCJyb2xlIjoiYWRtaW4iLCJleHAiOjE3NzcyODYzNDh9.H2RgIFVoi4NwuEuGMyR0vcwtm2dO0J6BELw1Z2wf6lE",
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIwMGY0ZDBiNS03NjlhLTRmOTQtODExMC1hNmI3NmIzMmUzYTQiLCJyb2xlIjoiYWRtaW4iLCJleHAiOjE3Nzc0OTk3MzJ9.t-Tb5SSbzXg9e9mRs_on4xeTQMnI5fPIhfn0OpNTGzs",
         "questions": sample
         })
 

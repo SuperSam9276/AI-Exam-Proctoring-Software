@@ -232,7 +232,7 @@
             const durationMins = parseInt("{{duration_minutes}}", 10);
 
             AntiCheat.init(sessionId, token);
-
+            
                 async function startwebcam(){
                     try {
                         const stream= await navigator.mediaDevices.getUserMedia({
@@ -241,18 +241,52 @@
                                 height: { ideal: 480 },
                                 facingMode: "user"
                             },
-                            audio: false
-                        });
+                            audio: {
+                                sampleRate: 16000,
+                                channelCount: 1
+                            }
+                        });    
+            
 
                         const videoEl=document.getElementById("webcam");
                         videoEl.srcObject=stream;
 
                         window.webcamStream = stream; // Store stream globally for later access (e.g., to stop it on exam submission)
 
+                        const audioCtx = new AudioContext({sampleRate: 16000});
+                        const source = audioCtx.createMediaStreamSource(stream);
+                        const processor = audioCtx.createScriptProcessor(4096, 1, 1);
+
+                        let audioBuffer = [];
+                        
+                        processor.onaudioprocess = function(e) {
+                            const samples = e.inputBuffer.getChannelData(0);
+                            audioBuffer.push(...samples);
+                        };
+
+                        source.connect(processor);
+                        processor.connect(audioCtx.destination);
+
+
                         setTimeout(()=> 
                             setInterval(captureAndSendFrame, 5000) // Capture and send a frame every 5 seconds
                         , 2000); // Start capturing frames after a short delay to allow webcam to initialize
-                        console.log("Webcam access granted and stream started.");
+                        
+                        setInterval(() => {
+                            if(audioBuffer.length === 0) return;
+
+                        const pcm = new Int16Array(audioBuffer.map(s =>
+                            Math.max(-32768, Math.min(32767, s * 32768))
+                        ));
+
+                        audioBuffer = []; // Clear buffer after processing
+
+                        const b64Audio = btoa(String.fromCharCode(...new Uint8Array(pcm.buffer)));
+
+                        AntiCheat.sendAudio(b64Audio); // Send audio data to the backend for analysis
+                    }, 2000) // Send audio data every 2 seconds
+                            
+                        console.log("Webcam and microphone access granted and stream started.");
                     } catch (err) {
                         if (err.name === "NotAllowedError") {
                             AntiCheat.sendEvent('camera_blocked') // Send violation to server if webcam access is blocked
@@ -274,8 +308,8 @@
 
 
                 const canvas = document.createElement('canvas');
-                canvas.width = 640;
-                canvas.height = 480;
+                canvas.width = 1280;
+                canvas.height = 720;
                 const ctx = canvas.getContext('2d');
                 async function captureAndSendFrame() {
                     const videoEl = document.getElementById('webcam');
@@ -285,7 +319,7 @@
                     }
                     if (window.webcamStream) {
                         ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
-                        const frameData = canvas.toDataURL('image/jpeg', 0.7); // Capture frame as JPEG with quality 0.7
+                        const frameData = canvas.toDataURL('image/jpeg', 0.92); // Capture frame as JPEG with quality 0.7
                         AntiCheat.sendFrame(frameData); // Send frame to server for analysis
                     }
                 }
@@ -326,6 +360,8 @@
                         }
                     }, 1000);
                 }
+                
+
 
                 function submitExam() {
                     if (timerInterval){

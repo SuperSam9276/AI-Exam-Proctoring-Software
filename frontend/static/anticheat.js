@@ -61,6 +61,49 @@ const AntiCheat = (()=> {
             console.error("[Anticheat] Error sending violation event:", event_type, error);
         }}
 
+
+        async function sendFrame(frameData) {
+    try {
+        const response = await fetch(`/session/${_sessionId}/frame`, {
+            method:  'POST',
+            headers: {
+                'Content-Type':  'application/json',
+                'Authorization': `Bearer ${_token}`
+            },
+            body: JSON.stringify({ frame_data: frameData })
+        });
+
+        if (!response.ok) {
+            const errorText = await response.json();
+            console.error("Error Detail:", JSON.stringify(errorText));
+            throw new Error(`Failed to send frame, response status: ${response.status}`);
+        }
+    } catch (err) {
+        console.error("Error sending frame:", err);
+    }   
+}
+
+    async function sendAudio(audioData) {
+    try {
+        const response = await fetch(`/session/${_sessionId}/audio`, {
+            method:  'POST',
+            headers: {
+                'Content-Type':  'application/json',
+                'Authorization': `Bearer ${_token}`
+            },
+            body: JSON.stringify({ audio_data: audioData })
+        });
+
+        if (!response.ok) {
+            const errorText = await response.json();
+            console.error("Error Detail:", JSON.stringify(errorText));
+            throw new Error(`Failed to send audio, response status: ${response.status}`);
+        }
+    } catch (err) {
+        console.error("Error sending audio:", err);
+    }
+}
+
     // Event Listeners
     // Tab Switch Detection/ Window blur
     function onVisibilityChange() {
@@ -240,28 +283,8 @@ const AntiCheat = (()=> {
         document.body.appendChild(lockdown);
     }
 
-    async function sendFrame(frameData) {
-    try {
-        const response = await fetch(`/session/${_sessionId}/frame`, {
-            method:  'POST',
-            headers: {
-                'Content-Type':  'application/json',
-                'Authorization': `Bearer ${_token}`
-            },
-            body: JSON.stringify({ frame_data: frameData })
-        });
 
-        if (!response.ok) {
-            const errorText = await response.json();
-            console.error("Error Detail:", JSON.stringify(errorText));
-            throw new Error(`Failed to send frame, response status: ${response.status}`);
-        }
-    } catch (err) {
-        console.error("Error sending frame:", err);
-    }   
-}
 
-    
     //Public API
 
     return {
@@ -296,7 +319,8 @@ const AntiCheat = (()=> {
             console.log("[Anticheat] Monitoring stopped for session:", _sessionId);
         },
         sendEvent: sendEvent, // Expose sendEvent for manual triggering if needed
-        sendFrame: sendFrame // Expose sendFrame for sending webcam frames to the backend
+        sendFrame: sendFrame, // Expose sendFrame for sending webcam frames to the backend
+        sendAudio: sendAudio // Expose sendAudio for sending audio data to the backend
     };
 })();
 

@@ -16,6 +16,7 @@ from app.penalty import (
     DEESCALATION_MIN_INTERVAL
 )
 from app.penalty import get_combined_multiplier
+from app.detection import analyse_face, analyse_objects, analyse_eye_gaze, analyse_head_pose, analyse_audio 
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -98,11 +99,12 @@ def get_session_state(session_id: str):
 @router.post("/{session_id}/violation_event")
 def record_violation(
     session_id: str, 
-    payload: dict, 
+    payload: dict,
     current_user: User = Depends(get_current_user), 
     db: Session = Depends(get_db)
     ):
-    event_type = payload.get("event_type")
+    event_data = list(payload.keys())[0]
+    event_type = payload[event_data]
     if event_type not in PENALTY_MATRIX:
         raise HTTPException(status_code=400, detail=f"Unknown event type: {event_type}."
                             f" Valid types: {list(PENALTY_MATRIX.keys())}"
@@ -200,21 +202,76 @@ def receive_frame(
     if session.state == "TERMINATED":
         raise HTTPException(status_code=403, detail="Session already terminated due to excessive violations")
     
+    # Running Detections 
+    face_detected = analyse_face(frame.frame_data, session_id)
+    gaze_away_detected = analyse_eye_gaze(frame.frame_data)
+    head_pose_detected = analyse_head_pose(frame.frame_data)
+    object_detected = analyse_objects(frame.frame_data)
+    all_violations = face_detected + gaze_away_detected + head_pose_detected + object_detected
+
+    print(f"[frame] {session_id}: {all_violations}")
+
+    for event_type in all_violations:
+        event_payload = {event_type: event_type}
+        record_violation(session_id, event_payload, current_user, db)
+        
+    session_key = f"session:{session_id}"
+    
+    
     try:
         # Decode base64 image data
         image_data = frame.frame_data.split(",")[1] if "," in frame.frame_data else frame.frame_data
         image_bytes = base64.b64decode(image_data)
         # Here you can process the image data as needed (e.g., save to disk, run through ML model, etc.)
         # For demonstration, we'll just log the receipt of the frame
-        print(f"Received frame for session {session_id} at {datetime.now(timezone.utc)}")
+        score = int(data.get(b"penalty_score") or 0)
+        state = data.get(b"state", b"CLEAR").decode()
+
+        print(f"Received frame for session {session_id} at {datetime.now(timezone.utc)} with current state {state} and score {score}")
+
+        return {
+            "received": True,
+            "status": "success", 
+            "message": "Frame received",
+            "violations": all_violations,
+            "current_state": state, 
+            "penalty_score": score
+        }
     
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid frame data")
     
 
-    score = int(data.get(b"penalty_score") or 0)
-    state = data.get(b"state", b"CLEAR").decode()
+class AudioIn(BaseModel):
+    audio_data: str  # base64 encoded audio data
 
-    print(f"Received frame for session {session_id} at {datetime.now(timezone.utc)} with current state {state} and score {score}")
+@router.post("/{session_id}/audio")
+def receive_audio(
+    session_id: str,
+    audio: AudioIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    session = db.query(ExamSession).filter(ExamSession.id == session_id).first()
 
-    return {"status": "success", "message": "Frame received", "current_state": state, "penalty_score": score}
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    try:
+        audio_data = base64.b64decode(audio.audio_data)
+
+    except:
+        raise HTTPException(status_code=400, detail="Invalid audio data")
+    
+    violations = analyse_audio(audio_data)
+    print(f"[audio] {session_id}: {violations}")
+
+    for event_type in violations:
+        event_payload = {event_type: event_type}
+        record_violation(session_id, event_payload, current_user, db)
+
+    return {
+        "recieved": True,
+        "status": "success",
+        "violations_found": violations
+    }
