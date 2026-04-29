@@ -234,7 +234,7 @@ def analyse_objects(frame_data: str) -> list[str]:
     results = yolo_model(img, conf=YOLO_CONFIDENCE, verbose= False)
     
     annotated = results[0].plot()
-    cv2.imwrite("C:\\Swayam\\Codes\\Proctoring Software\\debug_frame.jpg", annotated)
+    cv2.imwrite("C:\\Swayam\\Codes\\Proctoring Software\\backend\\app\\debug_frame.jpg", annotated)
     
 
     for result in results:
