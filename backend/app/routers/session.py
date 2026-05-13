@@ -1,277 +1,381 @@
-from fastapi import APIRouter, Depends, HTTPException, status  
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-import redis, os, json, base64
-from datetime import datetime, timedelta, timezone
+import redis, os, base64, asyncio, anyio
+from datetime import datetime, timezone
 from app.database import get_db
 from app.model import ExamSession, Exam, ViolationEvents, User, StateTransition
 from app.auth import require_role, get_current_user
+from app.ws_manager import ws_manager
 from app.penalty import (
     PENALTY_MATRIX,
     PENALTY_POINTS,
     get_state,
     STATE_ACTIONS,
     COOLDOWN_SECS,
-    STREAK_WINDOWS_SECS,
-    DEESCALATION_MIN_INTERVAL
+    STREAK_WINDOWS_SECS,     
 )
 from app.penalty import get_combined_multiplier
-from app.detection import analyse_face, analyse_objects, analyse_eye_gaze, analyse_head_pose, analyse_audio 
+from app.detection import (
+    analyse_face,
+    analyse_objects,
+    analyse_eye_gaze,
+    analyse_head_pose,
+    analyse_audio,
+    analyse_liveness
+)
 from dotenv import load_dotenv
 
 load_dotenv()
-router = APIRouter(prefix="/session", tags=["Exam Sessions"])
-redis_cl = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
 
-# State Threshold for Cheating Detection
-def get_state(score: int) -> str:
-    if score <= 0:
-        return "CLEAR"
-    elif score <= 30:
-        return "CAUTION"
-    elif score <= 60:
-        return "WARNING"
-    elif score <= 85:
-        return "ALERT"
-    elif score <= 99:
-        return "CRITICAL"
-    else:
-        return "TERMINATED"
-    
+router   = APIRouter(prefix="/session", tags=["Exam Sessions"])
+
+# decode_responses=True — all Redis responses are strings, no .decode() needed
+redis_cl = redis.from_url(
+    os.getenv("REDIS_URL", "redis://localhost:6379/0"),
+    decode_responses=True
+)
+
+
+# ── Session Start ─────────────────────────────────────────────────
+
 class StartSession(BaseModel):
     exam_id: str
 
+
 @router.post("/start")
 def start_exam_session(
-    session_data: StartSession, 
-    current_user = Depends(require_role("student")),
+    session_data: StartSession,
+    current_user: User = Depends(require_role("student")),  # now returns User object
     db: Session = Depends(get_db)
 ):
-    #verify exam exists and is active
-    exam= db.query(Exam).filter(Exam.id == session_data.exam_id, Exam.is_active == True).first()
+    exam = db.query(Exam).filter(
+        Exam.id == session_data.exam_id,
+        Exam.is_active == True
+    ).first()
     if not exam:
         raise HTTPException(status_code=404, detail="Exam not found or not active")
-    
-    #create session in postgres
+
     session = ExamSession(
-        student_id= current_user["sub"],
-        exam_id= session_data.exam_id,
-        penalty_score=0,
-        state = "CLEAR"
-        )   
+        student_id    = current_user.id,        # fixed: was current_user["sub"]
+        exam_id       = session_data.exam_id,
+        penalty_score = 0,
+        state         = "CLEAR"
+    )
 
     db.add(session)
     db.commit()
     db.refresh(session)
 
-    #store live state in redis for quick updates
     session_id = str(session.id)
     redis_cl.hset(f"session:{session_id}", mapping={
         "penalty_score": 0,
-        "state": "CLEAR",
-        "student_id": current_user['sub'] 
+        "state":         "CLEAR",
+        "student_id":    str(current_user.id)   # fixed: was current_user["sub"]
     })
-    redis_cl.expire(f"session:{session_id}", 86400) #expire after 24 hours to prevent stale data
+    redis_cl.expire(f"session:{session_id}", 86400)
 
     return {
-        "session_id": session_id,
-        "state": "CLEAR",
+        "session_id":    session_id,
+        "state":         "CLEAR",
         "penalty_score": 0,
-        "message": f"Exam session started for exam '{exam.title}'"
+        "message":       f"Exam session started for exam '{exam.title}'"
     }
 
-# Get Current Session State
+
+# ── Session State ─────────────────────────────────────────────────
+
 @router.get("/{session_id}/state")
 def get_session_state(session_id: str):
-    print(f"Here's the Input: {session_id}")
     data = redis_cl.hgetall(f"session:{session_id}")
     if not data:
         raise HTTPException(status_code=404, detail="Session not found")
-    return{
-        "session_id": session_id,
-        "state": data[b'state'].decode(),
-        "penalty_score": int(data[b"penalty_score"])
+
+    # fixed: decode_responses=True means keys/values are already strings
+    return {
+        "session_id":    session_id,
+        "state":         data.get("state", "CLEAR"),
+        "penalty_score": int(data.get("penalty_score", 0))
     }
-        
 
 
-# receive violation event and update session state
-@router.post("/{session_id}/violation_event")
-def record_violation(
-    session_id: str, 
-    payload: dict,
-    current_user: User = Depends(get_current_user), 
-    db: Session = Depends(get_db)
-    ):
-    event_data = list(payload.keys())[0]
-    event_type = payload[event_data]
+# ── Penalty Engine ────────────────────────────────────────────────
+
+def process_violation(session_id: str, event_type: str, db: Session, current_user):
+    """
+    Shared penalty engine — called by record_violation, receive_frame, receive_audio.
+    event_type must be a plain string key from PENALTY_MATRIX.
+    """
     if event_type not in PENALTY_MATRIX:
-        raise HTTPException(status_code=400, detail=f"Unknown event type: {event_type}."
-                            f" Valid types: {list(PENALTY_MATRIX.keys())}"
-                            )
-    #Loading session data from db
-    session = db.query(ExamSession).filter(ExamSession.id == session_id).first()
-    
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-    
-    if session.state == "TERMINATED":
-        raise HTTPException(status_code=403, detail="Session already terminated due to excessive violations")
+        return None
 
-    #load live score form redis
-    score_key= f"session:{session_id}"
-    state_key = f"session:{session_id}"
+    session_key  = f"session:{session_id}"
     cooldown_key = f"cooldown:{session_id}:{event_type}"
-    streak_key = f"streak:{session_id}:{event_type}"
-    deescalation_key = f"deesc:{session_id}"
+    streak_key   = f"streak:{session_id}:{event_type}"
 
-    current_score = int(redis_cl.hget(score_key, "penalty_score") or 0)
-    current_state = redis_cl.hget(state_key, "state").decode() if redis_cl.hget(state_key, "state") else "CLEAR"
+    current_score = int(redis_cl.hget(session_key, "penalty_score") or 0)
+    current_state = redis_cl.hget(session_key, "state") or "CLEAR"
 
-    #cooldown check
+    # Cooldown check
     if redis_cl.exists(cooldown_key):
-        return{
-            "status": "cooldown",
-            "message": f"Event '{event_type}' is in cooldown. No additional penalty applied.",
+        return {
+            "status":        "cooldown",
+            "event_type":    event_type,
             "current_state": current_state,
             "penalty_score": current_score
         }
-    
-    #set cooldown
-    redis_cl.set(cooldown_key, "1", ex= COOLDOWN_SECS)
 
+    redis_cl.set(cooldown_key, "1", ex=COOLDOWN_SECS)
 
-    #streak multiplier check
+    # Streak multiplier
     streak_count = redis_cl.incr(streak_key)
-    multiplier = get_combined_multiplier(streak_count, current_state)
+    if streak_count == 1:
+        redis_cl.expire(streak_key, STREAK_WINDOWS_SECS)
 
-    base_point = PENALTY_POINTS[event_type]
-    points_applied = int(base_point * multiplier)
-    new_score = current_score + points_applied
-    new_state = get_state(new_score)
+    multiplier     = get_combined_multiplier(streak_count, current_state)
+    base_points    = PENALTY_POINTS[event_type]
+    points_applied = int(base_points * multiplier)
+    new_score      = current_score + points_applied
+    new_state      = get_state(new_score)
 
-    #changing score in redis
-    redis_cl.hset(score_key, "penalty_score", new_score)
-    redis_cl.hset(state_key, "state", new_state)
-    
-    #Handling Terminated State
+    redis_cl.hset(session_key, mapping={
+        "penalty_score": new_score,
+        "state":         new_state
+    })
+
+    # Handle termination
     if new_state == "TERMINATED":
-        session.state = "TERMINATED"
-        session.ended_at = datetime.now(timezone.utc)
-        db.commit()
+        session = db.query(ExamSession).filter(
+            ExamSession.id == session_id
+        ).first()
+        if session:
+            session.state         = "TERMINATED"
+            session.terminated_at = datetime.now(timezone.utc)
 
-    #Log violation event in postgres
+    # Log violation
     violation = ViolationEvents(
-        session_id = session_id,
-        event_type = event_type,
-        points = points_applied,
-        multiplier = multiplier,
+        session_id  = session_id,
+        event_type  = event_type,
+        points      = points_applied,
+        multiplier  = multiplier,
         score_after = new_score,
         state_after = new_state
     )
     db.add(violation)
-    # Log state transition if state changed
+
+    # Log state transition
     if new_state != current_state:
         transition = StateTransition(
-            session_id = session_id,
-            from_state = current_state,
-            to_state = new_state,
+            session_id       = session_id,
+            from_state       = current_state,
+            to_state         = new_state,
             triggering_event = event_type,
-            score_at_change = new_score
+            score_at_change  = new_score
         )
-
         db.add(transition)
+
     db.commit()
 
+    # Broadcast to invigilator dashboard
+    try:
+        ws_manager.broadcast_sync({
+            "type":       "score_update",
+            "session_id": session_id,
+            "score":      new_score,
+            "state":      new_state,
+            "event_type": event_type,
+        })
+    except Exception as e:
+        print(f"[ws] Broadcast error: {e}")
+
+    actions = STATE_ACTIONS[new_state]
+    return {
+        "status":            "recorded",
+        "event_type":        event_type,
+        "base_points":       base_points,
+        "multiplier":        multiplier,
+        "points_applied":    points_applied,
+        "new_score":         new_score,
+        "new_state":         new_state,
+        "student_alert":     PENALTY_MATRIX[event_type].get("student_alert"),
+        "student_message":   actions["student_message"],
+        "exam_paused":       actions["exam_paused"],
+        "invigilator_alert": actions["invigilator_alert"],
+    }
+
+
+# ── Violation Event Endpoint ──────────────────────────────────────
+
+@router.post("/{session_id}/violation_event")
+def record_violation(
+    session_id:   str,
+    payload:      dict,
+    current_user: User = Depends(get_current_user),
+    db:           Session = Depends(get_db)
+):
+    event_type = payload.get("event_type")
+    if not event_type:
+        raise HTTPException(status_code=400, detail="event_type is required")
+
+    session = db.query(ExamSession).filter(
+        ExamSession.id == session_id
+    ).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if session.state == "TERMINATED":
+        raise HTTPException(status_code=400, detail="Session already terminated")
+
+    result = process_violation(session_id, event_type, db, current_user)
+    if result is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown event type: {event_type}. "
+                   f"Valid types: {list(PENALTY_MATRIX.keys())}"
+        )
+
+    return result
+
+
+# ── Frame Endpoint ────────────────────────────────────────────────
 
 class FrameData(BaseModel):
-    frame_data: str  # base64 encoded image data
-# Recieving frames for live proctoring (optional, can be used for advanced features like real-time alerts or post-exam review)
+    frame_data: str   # base64 encoded JPEG
+
+
 @router.post("/{session_id}/frame")
 def receive_frame(
-    session_id: str, 
-    frame: FrameData, 
-    current_user: User = Depends(get_current_user), 
-    db: Session = Depends(get_db)
+    session_id:   str,
+    frame:        FrameData,
+    current_user: User = Depends(get_current_user),
+    db:           Session = Depends(get_db)
 ):
-    session = db.query(ExamSession).filter(ExamSession.id == session_id).first()
-    redis_key = f"session:{session_id}"
-    data = redis_cl.hgetall(redis_key)
-    if not session or not data:
+    session = db.query(ExamSession).filter(
+        ExamSession.id == session_id
+    ).first()
+    if not session:
         raise HTTPException(status_code=404, detail="Session not found")
+
     if session.state == "TERMINATED":
-        raise HTTPException(status_code=403, detail="Session already terminated due to excessive violations")
-    
-    # Running Detections 
-    face_detected = analyse_face(frame.frame_data, session_id)
-    gaze_away_detected = analyse_eye_gaze(frame.frame_data)
-    head_pose_detected = analyse_head_pose(frame.frame_data)
-    object_detected = analyse_objects(frame.frame_data)
-    all_violations = face_detected + gaze_away_detected + head_pose_detected + object_detected
+        raise HTTPException(status_code=400, detail="Session already terminated")
+
+    # Run detections
+    all_violations = []
+
+
+    face_violations   = analyse_face(frame.frame_data, session_id)
+    gaze_violations   = analyse_eye_gaze(frame.frame_data)
+    head_violations   = analyse_head_pose(frame.frame_data)
+    object_violations = analyse_objects(frame.frame_data)
+    all_violations    = face_violations + gaze_violations + head_violations + object_violations
+   
 
     print(f"[frame] {session_id}: {all_violations}")
 
+   
     for event_type in all_violations:
-        event_payload = {event_type: event_type}
-        record_violation(session_id, event_payload, current_user, db)
-        
-    session_key = f"session:{session_id}"
-    
-    
-    try:
-        # Decode base64 image data
-        image_data = frame.frame_data.split(",")[1] if "," in frame.frame_data else frame.frame_data
-        image_bytes = base64.b64decode(image_data)
-        # Here you can process the image data as needed (e.g., save to disk, run through ML model, etc.)
-        # For demonstration, we'll just log the receipt of the frame
-        score = int(data.get(b"penalty_score") or 0)
-        state = data.get(b"state", b"CLEAR").decode()
+        process_violation(session_id, event_type, db, current_user)
 
-        print(f"Received frame for session {session_id} at {datetime.now(timezone.utc)} with current state {state} and score {score}")
+    session_key   = f"session:{session_id}"
+    current_score = int(redis_cl.hget(session_key, "penalty_score") or 0)
+    current_state = redis_cl.hget(session_key, "state") or "CLEAR"
 
-        return {
-            "received": True,
-            "status": "success", 
-            "message": "Frame received",
-            "violations": all_violations,
-            "current_state": state, 
-            "penalty_score": score
-        }
     
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid frame data")
-    
+    print(f"[frame] {session_id} | state: {current_state} | score: {current_score}")
+
+    return {
+        "received":      True,
+        "violations":    all_violations,
+        "current_state": current_state,
+        "penalty_score": current_score
+    }
+
+
+#-------------Liveness Endpoint----------------------------
+class LivenessIn(BaseModel):
+    frame_data: str
+
+
+@router.post("/{session_id}/liveness")
+def receive_liveness(
+    session_id: str,
+    frame: LivenessIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user)
+):
+    session = db.query(ExamSession).filter(
+        ExamSession.id == session_id
+    ).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    all_violations = analyse_liveness(frame.frame_data, session_id)
+
+    for event_type in all_violations:
+        process_violation(session_id, event_type, db, user)
+
+    return {
+        "received":         True,
+        "violations_found": all_violations
+    }
+
+
+
+# ── Audio Endpoint ────────────────────────────────────────────────
 
 class AudioIn(BaseModel):
-    audio_data: str  # base64 encoded audio data
+    audio_data: str   # base64 encoded raw PCM bytes
+
 
 @router.post("/{session_id}/audio")
 def receive_audio(
-    session_id: str,
-    audio: AudioIn,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    session_id:   str,
+    audio:        AudioIn,
+    current_user: User = Depends(get_current_user),
+    db:           Session = Depends(get_db)
 ):
-    session = db.query(ExamSession).filter(ExamSession.id == session_id).first()
-
+    session = db.query(ExamSession).filter(
+        ExamSession.id == session_id
+    ).first()
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    
-    try:
-        audio_data = base64.b64decode(audio.audio_data)
 
-    except:
+    try:
+        audio_bytes = base64.b64decode(audio.audio_data)
+    except Exception:
         raise HTTPException(status_code=400, detail="Invalid audio data")
-    
-    violations = analyse_audio(audio_data)
+
+    violations = analyse_audio(audio_bytes)
     print(f"[audio] {session_id}: {violations}")
 
+    # fixed: call process_violation directly with plain string, not record_violation
     for event_type in violations:
-        event_payload = {event_type: event_type}
-        record_violation(session_id, event_payload, current_user, db)
+        process_violation(session_id, event_type, db, current_user)
 
     return {
-        "recieved": True,
-        "status": "success",
+        "received":        True,
         "violations_found": violations
+    }
+
+
+# ── Active Session Lookup ─────────────────────────────────────────
+
+@router.get("/my-active")
+def get_my_active_session(
+    current_user: User = Depends(get_current_user),
+    db:           Session = Depends(get_db)
+):
+    session = db.query(ExamSession).filter(
+        ExamSession.student_id == current_user.id,
+        ExamSession.state      != "TERMINATED",
+        ExamSession.terminated_at == None
+    ).first()
+
+    if not session:
+        raise HTTPException(status_code=404, detail="No active session found")
+
+    return {
+        "session_id": str(session.id),
+        "exam_id":    str(session.exam_id),
+        "state":      session.state
     }

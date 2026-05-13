@@ -38,22 +38,19 @@ def login(credentials : UserLogin, db : Session = Depends(get_db)):
     token = create_token(str(user.id), user.role) #create a JWT token for the user
     return TokenResponse(access_token=token, role=user.role, name=user.name)
 
+# get_me endpoint
 @router.get("/me", response_model=UserResponse)
-def get_me(current_user = Depends(get_current_user), db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.id == current_user["sub"]).first() #get the current user from the token
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found") #if user does not exist
-    return user
+def get_me(current_user = Depends(get_current_user)):
+    return current_user   # already a User object now — no DB query needed
 
+# admin_only endpoint
 @router.get("/admin-only")
-def admin_only(admin_user = Depends(require_role("admin")), db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.id == admin_user["sub"]).first() #get the admin user from the token
-
+def admin_only(admin_user = Depends(require_role("admin"))):
     return {
-        "status" : "success",
-        "role" : user.role,
-        "name" : user.name,
-        "email" : user.email,
-        "college_id" : user.college_id,
-        "message": f"Hello {user.name}, Welcome to the Admin Panel!"
-        } #example of a protected route that only admins can access
+        "status":     "success",
+        "role":       admin_user.role,
+        "name":       admin_user.name,
+        "email":      admin_user.email,
+        "college_id": admin_user.college_id,
+        "message":    f"Hello {admin_user.name}, Welcome to the Admin Panel!"
+    }

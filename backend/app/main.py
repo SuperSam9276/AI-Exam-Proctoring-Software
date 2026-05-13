@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from app.database import engine, Base
-from app.routers import auth, exams, session, pages
+from app.routers import auth, exams, session, pages, invigilator, ws
 from app.model import User
 from app.decay import start_decay_thread
 
@@ -27,6 +27,8 @@ app.include_router(auth.router) #include the authentication router for handling 
 app.include_router(exams.router) #include the exams router for handling exam creation and listing
 app.include_router(session.router) #include the session router for handling exam sessions and cheating detection
 app.include_router(pages.router) #include the pages router for serving HTML pages (e.g., exam page)
+app.include_router(invigilator.router)
+app.include_router(ws.router)
 
 @app.get("/")
 def root():

@@ -26,7 +26,18 @@ def exam_page(request: Request, session_id: str):
         "user_name": "John Doe",
         "duration_minutes": 10,
         "session_id": session_id,
-        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIwMGY0ZDBiNS03NjlhLTRmOTQtODExMC1hNmI3NmIzMmUzYTQiLCJyb2xlIjoiYWRtaW4iLCJleHAiOjE3Nzc0OTk3MzJ9.t-Tb5SSbzXg9e9mRs_on4xeTQMnI5fPIhfn0OpNTGzs",
+        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyOGEzYWI4Ni1kNzJjLTQxMjYtYTI0Mi1jODdiMzJmODIxNDUiLCJyb2xlIjoiYWRtaW4iLCJleHAiOjE3Nzg3MjExNDZ9.swJf0N-YXW24G64OPI6WNt2tGMPDBpAmLEssiUjS0wQ",
         "questions": sample
         })
 
+@router.get("/invigilator")
+def invigilator_page(request: Request):
+    return templates.TemplateResponse("invigilator.html", {
+        "request": request
+    })
+
+@router.get("/login")
+def login_page(request: Request):
+    return templates.TemplateResponse("login.html", {
+        "request": request
+    })

@@ -232,6 +232,18 @@
             const durationMins = parseInt("{{duration_minutes}}", 10);
 
             AntiCheat.init(sessionId, token);
+
+                setInterval(async () => {
+                try {
+                    const res  = await fetch(`/session/${sessionId}/state`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    const data = await res.json();
+                    AntiCheat.updateScore(data.penalty_score, data.state);
+                } catch (err) {
+                    console.error("State poll error:", err);
+                    }
+                }, 5000);  // poll every 5 seconds
             
                 async function startwebcam(){
                     try {
@@ -266,12 +278,30 @@
 
                         source.connect(processor);
                         processor.connect(audioCtx.destination);
-
-
-                        setTimeout(()=> 
-                            setInterval(captureAndSendFrame, 5000) // Capture and send a frame every 5 seconds
-                        , 2000); // Start capturing frames after a short delay to allow webcam to initialize
                         
+                        
+                        setTimeout(()=>{
+                        // ── 1. LIVENESS (EAR) — every 100ms ──────────────────────
+                        let isSending = false;
+                        
+                        setInterval(async () => {
+                            if (isSending) return;
+                            const videoEl = document.getElementById('webcam');
+                            if (!videoEl.srcObject || videoEl.readyState < 2) return;
+                            if (!window.webcamStream) return;
+                        
+                            ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
+                            const frameData = canvas.toDataURL('image/jpeg', 0.92);
+                        
+                            isSending = true;
+                            await AntiCheat.sendLiveness(frameData);
+                            isSending = false;
+                        
+                        }, 100);
+                            setInterval(captureAndSendFrame, 5000);}, // Capture and send a frame every 5 seconds
+                        2000);
+
+
                         setInterval(() => {
                             if(audioBuffer.length === 0) return;
 
@@ -321,6 +351,10 @@
                         ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
                         const frameData = canvas.toDataURL('image/jpeg', 0.92); // Capture frame as JPEG with quality 0.7
                         AntiCheat.sendFrame(frameData); // Send frame to server for analysis
+                        AntiCheat.updateScore(data.penalty_score, data.current_state);
+                        if (data.current_state === "TERMINATED") {
+                            AntiCheat.triggerLockdown("Your exam has been terminated.");
+                        }
                     }
                 }
 

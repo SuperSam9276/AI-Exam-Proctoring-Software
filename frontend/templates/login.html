@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Login — AI Proctor</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: "Segoe UI", sans-serif;
+            background: #0f1117; color: #e8eaf0;
+            min-height: 100vh; display: flex;
+            align-items: center; justify-content: center;
+        }
+        .box {
+            background: #161b26; border: 1px solid #2a3040;
+            border-radius: 12px; padding: 40px; width: 380px;
+        }
+        h2 { font-size: 22px; margin-bottom: 24px; }
+        label { display: block; font-size: 12px; color: #4a5568; margin-bottom: 6px; font-family: monospace; letter-spacing: 1px; }
+        input {
+            width: 100%; background: #0a0d14; border: 1px solid #2a3040;
+            border-radius: 8px; padding: 10px 14px; color: #e8eaf0;
+            font-size: 15px; margin-bottom: 16px; outline: none;
+        }
+        input:focus { border-color: #4ade80; }
+        button {
+            width: 100%; background: #4ade80; color: #0a0d14;
+            border: none; border-radius: 8px; padding: 12px;
+            font-size: 16px; font-weight: 800; cursor: pointer;
+        }
+        button:hover { background: #86efac; }
+        .error { color: #ef4444; font-size: 13px; margin-top: 12px; display: none; font-family: monospace; }
+    </style>
+</head>
+<body>
+    <div class="box">
+        <h2>AI Proctor — Login</h2>
+        <label>EMAIL</label>
+        <input type="email" id="email" placeholder="student@college.edu">
+        <label>EXAM ID</label>
+        <input type="text" id="examId" placeholder="auto-filled from link">
+        <label>PASSWORD</label>
+        <input type="password" id="password" placeholder="••••••••">
+        <button onclick="login()">Login</button>
+        <div class="error" id="err"></div>
+    </div>
+    <script>
+        // Auto-fill exam ID from URL query param
+        const urlParams = new URLSearchParams(window.location.search);
+        const eidFromUrl = urlParams.get('exam_id');
+        if (eidFromUrl) {
+            document.getElementById('examId').value = eidFromUrl;
+        }
+
+        async function login() {
+            const email    = document.getElementById('email').value.trim();
+            const password = document.getElementById('password').value.trim();
+            const examId   = document.getElementById('examId').value.trim();
+            const errEl    = document.getElementById('err');
+            const token    = sessionStorage.getItem('token');
+
+            try {
+                const res  = await fetch('/auth/login', {
+                    method:  'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body:    JSON.stringify({ email, password })
+                });
+
+                if (!res.ok) {
+                    errEl.textContent    = 'Invalid email or password.';
+                    errEl.style.display  = 'block';
+                    return;
+                }
+
+                const data = await res.json();
+                sessionStorage.setItem('token', data.access_token);
+                sessionStorage.setItem('role',  data.role || 'student');
+
+                // Redirect based on role
+                if (data.role === 'invigilator' || data.role === 'admin' || data.role === 'senior_admin') {
+                    window.location.href = '/invigilator';
+                } else if (!examId) {
+                    errEl.textContent    = 'Please enter an Exam ID.';
+                    errEl.style.display  = 'block';
+                    return;
+                } else {
+                    // Auto-start exam session
+                    const startRes = await fetch('/session/start', {
+                        method:  'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + data.access_token },
+                        body:    JSON.stringify({ exam_id: examId })
+                    });
+
+                    if (!startRes.ok) {
+                        const startErr = await startRes.json();
+                        errEl.textContent = startErr.detail || 'Failed to start exam session.';
+                        errEl.style.display = 'block';
+                        return;
+                    }
+
+                    const startData = await startRes.json();
+                    window.location.href = '/exam/' + startData.session_id;
+                }
+
+            } catch (err) {
+                errEl.textContent   = 'Connection error. Try again.';
+                errEl.style.display = 'block';
+            }
+        }
+
+        document.addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
+    </script>
+</body>
+</html>

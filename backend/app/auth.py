@@ -1,55 +1,62 @@
-import  bcrypt
+import bcrypt
 import jwt
 import os
 from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from sqlalchemy.orm import Session
 from dotenv import load_dotenv
 
-load_dotenv() # Load environment variables from .env file
+load_dotenv()
 SECRET_KEY = os.getenv("SECRET_KEY")
-ALGORITHM = "HS256" 
+ALGORITHM  = "HS256"
 
-security = HTTPBearer() # For handling bearer token authentication
+security = HTTPBearer()
 
-# Hash the password using bcrypt
+
 def hash_password(password: str) -> str:
-    salt = bcrypt.gensalt() # Generate a random salt
-    return bcrypt.hashpw(password.encode(), salt).decode() # Hash the password and return as string
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(password.encode(), salt).decode()
 
-# Verify the password against the hashed version
+
 def verify_password(password: str, hashed: str) -> bool:
-    return bcrypt.checkpw(password.encode(), hashed.encode()) # Check if the password matches the hash
+    return bcrypt.checkpw(password.encode(), hashed.encode())
 
-# Create a JWT token for the user(available for 8 hours)
+
 def create_token(user_id: str, role: str) -> str:
     payload = {
-        "sub": user_id,
+        "sub":  user_id,
         "role": role,
-        "exp": datetime.now(timezone.utc) + timedelta(hours=8) # Token expires in 8 hours
+        "exp":  datetime.now(timezone.utc) + timedelta(hours=8)
     }
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
-    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM) # Encode the token with the secret key
 
-#decodes and verify the token 
 def decode_token(token: str) -> dict:
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM]) # Decode the token
-        return payload
+        return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
     except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token has expired") # Token expired
+        raise HTTPException(status_code=401, detail="Token has expired")
     except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token") # Token is invalid
+        raise HTTPException(status_code=401, detail="Invalid token")
 
-# FastAPI dependency to get the current user from the token
-def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    token = credentials.credentials
-    return decode_token(token) # Decode the token and return the user information
 
-#requires a specific role to access the endpoint
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(lambda: next(__import__('app.database', fromlist=['get_db']).get_db()))
+):
+    from app.model import User
+    payload = decode_token(credentials.credentials)
+    user_id = payload.get("sub")
+    user    = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+    return user   # returns User object — .role, .id, .email, .name all work
+
+
 def require_role(*roles):
     def checker(user = Depends(get_current_user)):
-        if user["role"] not in roles:
-            raise HTTPException(status_code=403, detail="Forbidden: Insufficient permissions") # User does not have the required role
+        if user.role not in roles:
+            raise HTTPException(status_code=403, detail="Forbidden: Insufficient permissions")
         return user
     return checker

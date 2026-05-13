@@ -20,52 +20,121 @@ const AntiCheat = (()=> {
     //   System:  tab_switch, keyboard_shortcut, print_screen
     //   Input:   copy_attempt, paste_attempt, right_click
     
+    function updateScoreDisplay(score, state) {
+    const el = document.getElementById("score-display");
+    if (!el) return;
+    el.textContent  = state;
+    el.className    = "status-value " + state.toLowerCase();
+    }
+    
+    function showViolationAlert(message) {
+    const existing = document.getElementById("ac-violation-alert");
+    if (existing) existing.remove();
+
+    const alert   = document.createElement("div");
+    alert.id      = "ac-violation-alert";
+    alert.textContent = message;
+
+    Object.assign(alert.style, {
+        position:   "fixed",
+        top:        "0",
+        left:       "0",
+        right:      "0",
+        background: "#1e40af",
+        color:      "#fff",
+        padding:    "10px 20px",
+        fontSize:   "14px",
+        textAlign:  "center",
+        zIndex:     "9998"
+    });
+
+    document.body.appendChild(alert);
+    setTimeout(() => alert.remove(), 5000);
+    }
+    
+    
+    
+    
+    
     async function sendEvent(event_type) {
-        if (!_active) return; // Don't send events if monitoring is not active
-        try{
+        if (!_active) return;
+        try {
             const response = await fetch(`/session/${_sessionId}/violation_event`, {
-                method: "POST",
+                method:  "POST",
                 headers: {
-                    "Content-Type": "application/json",
+                    "Content-Type":  "application/json",
                     "Authorization": `Bearer ${_token}`
                 },
                 body: JSON.stringify({ event_type })
             });
 
             if (!response.ok) {
-                console.warn("[Anticheat] Failed to send violation event:", event_type, response.statusText);
+                console.warn("[AntiCheat] Failed:", event_type, response.status);
                 return;
             }
 
             const data = await response.json();
+            if (!data || data.status === "cooldown") return;
 
-            if (!data) return; // No state change, no need to update UI
+            // Update score display on exam page
+            updateScoreDisplay(data.new_score, data.new_state);
 
-            // Handle Terminated State
+            // Show student alert if present
+            if (data.student_alert) {
+                showViolationAlert(data.student_alert);
+            }
+
+            // Show state message
+            if (data.student_message) {
+                showToast(data.student_message, data.new_state);
+            }
+
+            // Pause exam if ALERT or CRITICAL
+            if (data.exam_paused) {
+                lockExamInput(data.student_message);
+            }
+
+            // Terminate exam permanently
             if (data.new_state === "TERMINATED") {
-                _active = false; // Stop monitoring further events
-                showLockdownscreen(data.student_message); // Show lockdown screen to the user
-                // Optionally, you can redirect the user or disable the exam interface here
-
+                _active = false;
+                showLockdownScreen(data.student_message);
             }
 
-            if (data.student_message){
-                showToast(data.student_message, data.new_state); // Show feedback message to the user
-            }
-
-            if(data.exam_paused){
-                lockExamInput(data.student_message); // Disable exam interface if the exam is paused
-            }
-
-        } catch (error) {
-            console.error("[Anticheat] Error sending violation event:", event_type, error);
-        }}
+        } catch (err) {
+            console.error("[AntiCheat] Error:", event_type, err);
+        }
+    }
 
 
-        async function sendFrame(frameData) {
+    async function sendFrame(frameData, isFullFrame) {
     try {
         const response = await fetch(`/session/${_sessionId}/frame`, {
             method:  'POST',
+            headers: {
+                'Content-Type':  'application/json',
+                'Authorization': `Bearer ${_token}`
+            },
+            body: JSON.stringify({ 
+                frame_data: frameData
+            })
+        });
+
+        if (!response.ok) {
+            const errorText = await response.json();
+            console.error("Error Detail:", JSON.stringify(errorText));
+            throw new Error(`Failed to send frame, response status: ${response.status}`);
+        }
+
+        return await response.json()
+    } catch (err) {
+        console.error("Error sending frame:", err);
+    }   
+}
+
+    async function sendLiveness(frameData) {
+    try {
+        const response = await fetch(`/session/${_sessionId}/liveness`, {
+            method: 'POST',
             headers: {
                 'Content-Type':  'application/json',
                 'Authorization': `Bearer ${_token}`
@@ -75,12 +144,15 @@ const AntiCheat = (()=> {
 
         if (!response.ok) {
             const errorText = await response.json();
-            console.error("Error Detail:", JSON.stringify(errorText));
-            throw new Error(`Failed to send frame, response status: ${response.status}`);
+            console.error("Liveness Error:", JSON.stringify(errorText));
+            throw new Error(`Liveness check failed, status: ${response.status}`);
         }
+
+        return await response.json();
+
     } catch (err) {
-        console.error("Error sending frame:", err);
-    }   
+        console.error("Error sending liveness frame:", err);
+    }
 }
 
     async function sendAudio(audioData) {
@@ -249,39 +321,75 @@ const AntiCheat = (()=> {
         document.body.appendChild(overlay);
     }
 
-    function showLockdownscreen(message) {
-        // This function can be expanded to show a more detailed lockdown screen with instructions for the user
-        // remove pause overlay if it exists
-        const pause = document.getElementById("anticheat-pause-overlay");
-        if (pause) {
-            pause.remove();
-        }
-        
-        const lockdown = document.createElement("div");
-        lockdown.id = "anticheat-lockdown";
+   function showLockdownScreen(message) {
+    const pause = document.getElementById("anticheat-pause-overlay");
+    if (pause) pause.remove();
 
-        Object.assign(lockdown.style, {
-            position: "fixed",
-            inset: 0,
-            backgroundColor: "#1a0000",
-            color: "#fff",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            flexDirection: "column",
-            zIndex: 9999,
-            fontSize: "18px",
-            textAlign: "center",
-            padding: "20px"
-        });
+    const lockdown = document.createElement("div");
+    lockdown.id    = "anticheat-lockdown";
 
-        lockdown.innerHTML = `<div style="font-size: 48px; margin-bottom: 20px;">🔒</div>
-        <h2 style="color: #ef4444; margin-bottom: 10px;">Exam Terminated</h2>
-        <div style = "max-width: 520px; line-height: 1.5;">${message || "Your exam session has been terminated due to multiple violations."}</div>
-        <div style = "margin-top: 20px; font-size: 14px; opacity: 0.7;">Please contact your administrator for further details.</div>`;
+    Object.assign(lockdown.style, {
+        position:       "fixed",
+        inset:          "0",
+        backgroundColor:"#1a0000",
+        color:          "#fff",
+        display:        "flex",
+        alignItems:     "center",
+        justifyContent: "center",
+        flexDirection:  "column",
+        zIndex:         "99999",
+        fontSize:       "18px",
+        textAlign:      "center",
+        padding:        "40px"
+    });
 
-        document.body.appendChild(lockdown);
+    lockdown.innerHTML = `
+        <div style="font-size:48px;margin-bottom:20px">🔒</div>
+        <h2 style="color:#ef4444;margin-bottom:16px">Exam Terminated</h2>
+        <div style="max-width:520px;line-height:1.7;color:#fca5a5">
+            ${message || "Your exam has been terminated due to integrity violations."}
+        </div>
+        <div style="margin-top:32px;font-size:13px;opacity:0.5">
+            An incident report has been sent to your institution.
+        </div>
+    `;
+
+    document.body.appendChild(lockdown);
+
+    // Block ALL further interaction
+    document.addEventListener("keydown",     e => e.preventDefault(), true);
+    document.addEventListener("click",       e => e.stopPropagation(), true);
+    document.addEventListener("contextmenu", e => e.preventDefault(), true);
+    document.addEventListener("copy",        e => e.preventDefault(), true);
+    document.addEventListener("paste",       e => e.preventDefault(), true);
+
+    // Stop webcam
+    if (window.webcamStream) {
+        window.webcamStream.getTracks().forEach(t => t.stop());
     }
+
+    // Stop timer
+    if (typeof timerInterval !== 'undefined' && timerInterval) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+    }
+    }
+
+    function updateScore(score, state) {
+        updateScoreDisplay(score, state);
+        if (state === "TERMINATED" && _active) {
+            _active = false;
+            showLockdownScreen("Your exam has been terminated due to integrity violations.");
+        }
+        if ((state === "ALERT" || state === "CRITICAL") && _active) {
+            lockExamInput("Your exam has been paused for review.");
+        }
+    }
+
+    function triggerLockdown(message) {
+        _active = false;
+        showLockdownScreen(message);
+    }   
 
 
 
@@ -320,7 +428,9 @@ const AntiCheat = (()=> {
         },
         sendEvent: sendEvent, // Expose sendEvent for manual triggering if needed
         sendFrame: sendFrame, // Expose sendFrame for sending webcam frames to the backend
-        sendAudio: sendAudio // Expose sendAudio for sending audio data to the backend
+        sendAudio: sendAudio, // Expose sendAudio for sending audio data to the backend
+        updateScore: updateScore,
+        triggerLockdown: triggerLockdown
     };
 })();
 

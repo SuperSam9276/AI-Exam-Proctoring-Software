@@ -5,6 +5,7 @@ import mediapipe as mp
 from ultralytics import YOLO
 import webrtcvad
 import struct
+from scipy.spatial import distance as dist
 
 mp_face_detect = mp.solutions.face_detection
 mp_face_mesh = mp.solutions.face_mesh
@@ -300,3 +301,101 @@ def analyse_audio(audio_data: bytes) -> list[str]:
                 
     return violations
     
+# Face Mesh landmark indices for left and right eye
+# These are the 6 points used in EAR calculation
+LEFT_EYE  = [362, 385, 387, 263, 373, 380]
+RIGHT_EYE = [33,  160, 158, 133, 153, 144]
+
+EAR_THRESHOLD    = 0.2   # below this = eye closed
+BLINK_MIN_FRAMES = 2    # must be closed for at least 2 frames
+BLINK_MAX_FRAMES = 6    # more than 6 frames = eyes shut, not a blink
+NO_BLINK_WINDOW  = 300  # 300 frames × 100ms = 30s — no blink → violation
+ROBOTIC_VARIANCE = 0.15 # blink interval variance below this = robotic
+
+# Per-session liveness state
+_liveness_state = {}
+# {session_id: {frames_since_blink, blink_intervals, closed_frames, last_blink_frame}}
+
+
+def calculate_ear(landmarks, eye_indices, img_w, img_h):
+    """Calculate Eye Aspect Ratio for one eye."""
+    pts = np.array([
+        [landmarks[i].x * img_w, landmarks[i].y * img_h]
+        for i in eye_indices
+    ])
+    # Vertical distances
+    A = dist.euclidean(pts[1], pts[5])
+    B = dist.euclidean(pts[2], pts[4])
+    # Horizontal distance
+    C = dist.euclidean(pts[0], pts[3])
+    ear = (A + B) / (2.0 * C)
+    return ear
+
+
+def analyse_liveness(frame_data: str, session_id: str) -> list[str]:
+    """
+    Analyses eye blink patterns for liveness detection.
+    Called every 100ms frame — fast path, EAR only, no YOLO.
+    Returns violations: liveness_fail_no_blink, liveness_fail_robotic_blink
+    """
+    violations = []
+
+    img = decode_frame(frame_data)
+    if img is None:
+        return violations
+
+    h, w = img.shape[:2]
+    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    results = face_mesh.process(img_rgb)
+
+    if not results.multi_face_landmarks:
+        return violations
+
+    landmarks = results.multi_face_landmarks[0].landmark
+
+    left_ear  = calculate_ear(landmarks, LEFT_EYE,  w, h)
+    right_ear = calculate_ear(landmarks, RIGHT_EYE, w, h)
+    avg_ear   = (left_ear + right_ear) / 2.0
+
+    # Init state for this session
+    if session_id not in _liveness_state:
+        _liveness_state[session_id] = {
+            "frames_since_blink": 0,
+            "closed_frames":     0,
+            "blink_intervals":   [],
+            "total_frames":      0
+        }
+
+    state = _liveness_state[session_id]
+    state["total_frames"]      += 1
+    state["frames_since_blink"] += 1
+
+    if avg_ear < EAR_THRESHOLD:
+        state["closed_frames"] += 1
+    else:
+        # Eye just opened — check if this was a valid blink
+        cf = state["closed_frames"]
+        if BLINK_MIN_FRAMES <= cf <= BLINK_MAX_FRAMES:
+            # Valid blink detected
+            state["blink_intervals"].append(state["frames_since_blink"])
+            state["frames_since_blink"] = 0
+
+            # Keep only last 20 intervals for variance check
+            if len(state["blink_intervals"]) > 20:
+                state["blink_intervals"] = state["blink_intervals"][-20:]
+
+        state["closed_frames"] = 0
+
+    # Check for no blink in 30 seconds
+    if state["frames_since_blink"] >= NO_BLINK_WINDOW:
+        violations.append("liveness_fail_no_blink")
+        state["frames_since_blink"] = 0  # reset after firing
+
+    # Check for robotic blink pattern (low variance)
+    if len(state["blink_intervals"]) >= 10:
+        variance = np.var(state["blink_intervals"])
+        if variance < ROBOTIC_VARIANCE:
+            violations.append("liveness_fail_robotic_blink")
+            state["blink_intervals"] = []  # reset after firing
+
+    return violations

@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Invigilator Dashboard - WADJET</title>
+    <style>
+        *{
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: "Segoe UI", sans-serif;
+            background-color: #0f1117;
+            color: #e8eaf0;
+        }
+
+        .top_bar{
+            background: #161b26;
+            border-bottom: 1px solid #2a3040;
+            padding: 16px 28px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .ws_indicator{
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-family: monospace;
+            font-size: 14px;
+            color: #4a5568;
+        }
+
+        .ws-dot{
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #4a5568;
+            transition: all 0.3s;
+        }
+
+        .ws-dot.live{
+            background: #4ade80;
+            box-shadow: 0 0 6px #4ade80;
+        }
+
+        .stats-bar{
+            padding: 12px 28px;
+            background: #0d1117;
+            border-bottom: 1px solid #2a3040;
+            display: flex;
+            gap: 24px;
+        }
+
+        .stat{
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 14px;
+            font-family: monospace;
+        }
+
+        .stat-dot{
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+        }
+
+        .grid{
+            padding:24px 28px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 16px;
+        }
+
+        .student-card{
+            background: #161b26;
+            border: 1px solid #2a3040;
+            border-radius: 8px;
+            padding: 16px;
+            transition: border-color 0.2s;
+        }
+
+        .student-card.CAUTION{border-color : rgba(245, 158, 11, 0.4);}
+        .student-card.WARNING{border-color : rgba(239, 68, 68, 0.4);}
+        .student-card.ALERT{border-color : rgba(220, 38, 38, 0.6);}
+        .student-card.CRITICAL{border-color : rgba(153, 27, 27, 0.8);}
+        .student-card.TERMINATED{border-color: #1a1a1a;}
+
+        .card-top{
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 12px;
+        }
+
+        .student-name{
+            font-weight: 600;
+            font-size: 16px;
+            color: #fff;
+        }
+
+        .exam-name{
+            font-size: 12px;
+            color: #4a5568;
+            margin-top: 4px;
+            font-family: monospace;
+        }
+
+        .state-badge{
+            font-family: monospace;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 20px;
+            letter-spacing: 1px;
+        }
+
+        .state-badge.CLEAR{
+            background: rgba(74, 222, 128, 0.1);
+            color: #4ade80;
+        }
+        .state-badge.CAUTION{
+            background: rgba(245, 158, 11, 0.1);
+            color: #f59e0b;
+        }
+        .state-badge.WARNING{
+            background: rgba(239, 68, 68, 0.1);
+            color: #ef4444;
+        }
+        .state-badge.ALERT{
+            background: rgba(220, 38, 38, 0.1);
+            color: #dc2626;
+        }
+        .state-badge.CRITICAL{
+            background: rgba(153, 27, 27, 0.1);
+            color: #991b1b;
+        }
+        .state-badge.TERMINATED{
+            background: rgba(0, 0, 0, 0.3);
+            color: #4a5568;
+        }
+        
+        .score-row{
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 10px; 
+        }
+
+        .score-label{
+            font-size: 11px;
+            color: #4a5568;
+            font-family: monospace;
+        }
+
+        .score-value{
+            font-size: 22px;
+            font-weight: 800;
+            color: #fff;
+            font-family: monospace;
+        }
+
+        .score-bar-wrap{
+            height: 4px;
+            background: #2a3040;
+            border-radius: 2px;
+            margin-bottom: 14px;
+        }
+
+        .score-bar{
+            height: 100%;
+            border-radius: 2px;
+            transition: width 0.4s ease, background 0.4s;
+        }
+
+        .violation-list{
+            font-size: 11px;
+            color: #4a5568;
+            font-family: monospace;
+            min-height: 16px;
+        }
+
+        .action-row{
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        .action-btn{
+            flex: 1;
+            padding: 7px;
+            border: none;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .btn-resume{
+            background: rgba(74,222,128,0.1);
+            color: #4ade80;
+            border: 1px solid rgba(74,222,128,0.3);
+        }
+
+        .btn-terminate{
+            background: rgba(239,68,68,0.2);
+            color: #ef4444;
+            border: 1px solid rgba(239,68,68,0.3)
+        }
+
+        .btn-resume:hover{
+            background: rgba(74,222,128,0.2)
+        }
+
+        .btn-terminate:hover{
+            background: rgba(239,68,68,0.2)
+        }
+
+        .empty-state{
+            grid-column: 1/-1;
+            text-align: center;
+            padding: 80px 20px;
+            color: #4a5568;
+            font-family: monospace;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="top-bar">
+        <div style="font-size:18px;font-weight: 800;">Invigilator Dashboard</div>
+        <div class="ws-indicator">
+            <div class="ws-dot" id="ws-dot"></div>
+            <span id="ws-status">Connecting....</span>
+        </div>
+    </div>
+
+     <div class="stats-bar" id="stats-bar">
+        <div class="stat"><div class="stat-dot" style="background:#4ade80"></div> <span id="cnt-clear">0</span> CLEAR</div>
+        <div class="stat"><div class="stat-dot" style="background:#f59e0b"></div> <span id="cnt-caution">0</span> CAUTION</div>
+        <div class="stat"><div class="stat-dot" style="background:#ef4444"></div> <span id="cnt-warning">0</span> WARNING</div>
+        <div class="stat"><div class="stat-dot" style="background:#dc2626"></div> <span id="cnt-alert">0</span> ALERT</div>
+        <div class="stat"><div class="stat-dot" style="background:#991b1b"></div> <span id="cnt-critical">0</span> CRITICAL</div>
+    </div>
+
+    <div class="grid" id="session-grid">
+        <div class="empty-state" id="empty">No active sessions</div>
+    </div>
+
+    <script>
+        // Token from sessionStorage (set at login)
+        const token = sessionStorage.getItem('token');
+        if (!token) { window.location.href = '/login'; }
+
+        // Sessions data store — keyed by session_id
+        const sessions = {};
+
+        // Score bar colour by state
+        const STATE_COLORS = {
+            CLEAR:      '#4ade80',
+            CAUTION:    '#f59e0b',
+            WARNING:    '#ef4444',
+            ALERT:      '#dc2626',
+            CRITICAL:   '#991b1b',
+            TERMINATED: '#4a5568'
+        };
+
+        // Fetch all active sessions on load
+        async function loadSessions() {
+            const res  = await fetch('/invigilator/sessions', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const data = await res.json();
+            console.log("API response:", data);  // add this
+
+            if (!Array.isArray(data)) {
+                console.error("Expected array, got:", typeof data, data);
+                return;
+            }
+
+            data.forEach(s => {
+                sessions[s.session_id] = s;
+                renderCard(s);
+            });
+            updateStats();
+        }
+
+        // Render or update a student card
+        function renderCard(s) {
+            const grid  = document.getElementById('session-grid');
+            const empty = document.getElementById('empty');
+            if (empty) empty.remove();
+
+            let card = document.getElementById(`card-${s.session_id}`);
+            if (!card) {
+                card    = document.createElement('div');
+                card.id = `card-${s.session_id}`;
+                card.className = 'student-card';
+                grid.appendChild(card);
+            }
+
+            const score   = s.score || 0;
+            const state   = s.state || 'CLEAR';
+            const barPct  = Math.min(score, 100);
+            const color   = STATE_COLORS[state] || '#4a5568';
+            const showResume = state === 'ALERT' || state === 'CRITICAL';
+
+            card.className = `student-card ${state}`;
+            card.innerHTML = `
+                <div class="card-top">
+                    <div>
+                        <div class="student-name">${s.student_name || 'Student'}</div>
+                        <div class="exam-name">${s.exam_title || 'Exam'}</div>
+                    </div>
+                    <div class="state-badge ${state}">${state}</div>
+                </div>
+                <div class="score-row">
+                    <span class="score-label">RISK SCORE</span>
+                    <span class="score-value">${score}</span>
+                </div>
+                <div class="score-bar-wrap">
+                    <div class="score-bar" style="width:${barPct}%;background:${color}"></div>
+                </div>
+                <div class="violation-list">${s.last_violation || '—'}</div>
+                <div class="action-row">
+                    ${showResume ? `<button class="action-btn btn-resume" onclick="resumeSession('${s.session_id}')">Resume</button>` : ''}
+                    <button class="action-btn btn-terminate" onclick="terminateSession('${s.session_id}')">Terminate</button>
+                </div>
+            `;
+        }
+
+        // Update stats bar counts
+        function updateStats() {
+            const counts = { CLEAR:0, CAUTION:0, WARNING:0, ALERT:0, CRITICAL:0 };
+            Object.values(sessions).forEach(s => {
+                if (counts[s.state] !== undefined) counts[s.state]++;
+            });
+            document.getElementById('cnt-clear').textContent   = counts.CLEAR;
+            document.getElementById('cnt-caution').textContent = counts.CAUTION;
+            document.getElementById('cnt-warning').textContent = counts.WARNING;
+            document.getElementById('cnt-alert').textContent   = counts.ALERT;
+            document.getElementById('cnt-critical').textContent = counts.CRITICAL;
+        }
+
+        // Action handlers — wired up on Day 28
+        async function resumeSession(sessionId) {
+            await fetch(`/invigilator/sessions/${sessionId}/resume`, {
+                method: 'POST',
+                headers: { 
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json' 
+                },
+                body: JSON.stringify({reason: "" }) 
+            });
+        }
+
+        async function terminateSession(sessionId) {
+            if (!confirm('Terminate this student session?')) return;
+            await fetch(`/invigilator/sessions/${sessionId}/terminate`, {
+                method: 'POST',
+                headers: { 
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json' 
+                 },
+                 body: JSON.stringify({reason:""})
+            });
+        }
+
+        loadSessions();
+        // WebSocket connection to backend
+        let ws         = null;
+        let wsRetries  = 0;
+        const MAX_RETRIES = 5;
+            
+        function connectWS() {
+            ws = new WebSocket(`ws://${location.host}/ws/dashboard`);
+        
+            ws.onopen = () => {
+                document.getElementById('ws-dot').className    = 'ws-dot live';
+                document.getElementById('ws-status').textContent = 'Live';
+                wsRetries = 0;
+                console.log('[WS] Connected to dashboard');
+            
+                // Keep-alive ping every 30s
+                setInterval(() => { if (ws.readyState === 1) ws.send('ping'); }, 30000);
+            };
+        
+            ws.onmessage = (event) => {
+                const msg = JSON.parse(event.data);
+            
+                if (msg.type === 'score_update') {
+                    // Update local sessions store
+                    if (sessions[msg.session_id]) {
+                        sessions[msg.session_id].score          = msg.score;
+                        sessions[msg.session_id].state          = msg.state;
+                        sessions[msg.session_id].last_violation = msg.event_type;
+                        renderCard(sessions[msg.session_id]);
+                        updateStats();
+                    }
+                }
+            };
+        
+            ws.onclose = () => {
+                document.getElementById('ws-dot').className    = 'ws-dot disconnected';
+                document.getElementById('ws-status').textContent = 'Reconnecting...';
+            
+                // Auto reconnect with backoff
+                if (wsRetries < MAX_RETRIES) {
+                    wsRetries++;
+                    setTimeout(connectWS, wsRetries * 2000);
+                } else {
+                    document.getElementById('ws-status').textContent = 'Disconnected';
+                }
+            };
+        
+            ws.onerror = (err) => {
+                console.error('[WS] Error:', err);
+            };
+        }
+        
+        loadSessions();
+        connectWS();
+    </script>
+</body>
+</html>
