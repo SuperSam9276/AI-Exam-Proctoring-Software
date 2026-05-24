@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#0a0e1a">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="ProctorAI">
+    <meta name="description" content="AI-powered exam proctoring — secure, real-time monitoring from your mobile device.">
+    
+    <title>ProctorAI — Mobile Proctoring</title>
+
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="manifest.json">
+    
+    <!-- Favicon & Apple Touch Icons -->
+    <link rel="icon" type="image/svg+xml" href="assets/icons/favicon.svg">
+    <link rel="apple-touch-icon" href="assets/icons/icon-192.png">
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+    <!-- Lucide Icons (CDN) -->
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js" defer></script>
+
+    <!-- Stylesheets -->
+    <link rel="stylesheet" href="css/design-system.css">
+    <link rel="stylesheet" href="css/components.css">
+    <link rel="stylesheet" href="css/pages.css">
+</head>
+<body>
+    <!-- Splash Screen -->
+    <div id="splash-screen" class="splash">
+        <div class="splash__logo">
+            <div class="splash__icon">
+                <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <rect x="4" y="12" width="56" height="40" rx="4" stroke="url(#grad1)" stroke-width="3" fill="none"/>
+                    <circle cx="32" cy="32" r="10" stroke="url(#grad1)" stroke-width="2.5" fill="none"/>
+                    <circle cx="32" cy="32" r="4" fill="url(#grad1)"/>
+                    <circle cx="20" cy="8" r="3" fill="#22d3ee" opacity="0.6"/>
+                    <circle cx="44" cy="8" r="3" fill="#a78bfa" opacity="0.6"/>
+                    <path d="M12 52 L24 44 L32 48 L40 40 L52 46" stroke="#34d399" stroke-width="2" stroke-linecap="round" fill="none" opacity="0.5"/>
+                    <defs>
+                        <linearGradient id="grad1" x1="0" y1="0" x2="64" y2="64">
+                            <stop offset="0%" stop-color="#22d3ee"/>
+                            <stop offset="50%" stop-color="#a78bfa"/>
+                            <stop offset="100%" stop-color="#f472b6"/>
+                        </linearGradient>
+                    </defs>
+                </svg>
+            </div>
+            <h1 class="splash__title">Proctor<span>AI</span></h1>
+            <p class="splash__subtitle">Intelligent Exam Monitoring</p>
+        </div>
+        <div class="splash__loader">
+            <div class="splash__bar"></div>
+        </div>
+    </div>
+
+    <!-- App Shell -->
+    <div id="app" class="app" style="display:none;">
+        <!-- Top Bar (injected by nav component) -->
+        <header id="app-header" class="app-header"></header>
+
+        <!-- Main Content Area -->
+        <main id="app-content" class="app-content"></main>
+
+        <!-- Bottom Navigation (injected by nav component) -->
+        <nav id="app-nav" class="app-nav"></nav>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- Modal Container -->
+    <div id="modal-container" class="modal-container"></div>
+
+    <!-- Scripts (order matters) -->
+    <script src="js/state.js"></script>
+    <script src="js/api.js"></script>
+    <script src="js/mock.js"></script>
+    <script src="js/components/toast.js"></script>
+    <script src="js/components/modal.js"></script>
+    <script src="js/components/nav.js"></script>
+    <script src="js/components/card.js"></script>
+    <script src="js/components/chart.js"></script>
+    <script src="js/components/camera-feed.js"></script>
+    <script src="js/pages/login.js"></script>
+    <script src="js/pages/student.js"></script>
+    <script src="js/pages/exam-session.js"></script>
+    <script src="js/pages/proctor.js"></script>
+    <script src="js/pages/admin.js"></script>
+    <script src="js/app.js"></script>
+
+    <!-- Register Service Worker -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js')
+                    .then(reg => console.log('[SW] Registered:', reg.scope))
+                    .catch(err => console.warn('[SW] Registration failed:', err));
+            });
+        }
+    </script>
+</body>
+</html>

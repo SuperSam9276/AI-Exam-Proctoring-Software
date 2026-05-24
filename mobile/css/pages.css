@@ -1,0 +1,143 @@
+/* Login Page */
+.page-login {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 2rem;
+    min-height: 100vh;
+}
+
+.login-header {
+    text-align: center;
+    margin-bottom: 3rem;
+}
+
+.login-logo {
+    width: 60px;
+    height: 60px;
+    margin: 0 auto 1rem;
+}
+
+/* Dashboard Page */
+.page-dashboard {
+    padding: 1.5rem;
+}
+
+.section-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin-bottom: 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.exam-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.exam-card__time {
+    font-size: 0.875rem;
+    color: var(--accent-cyan);
+    font-weight: 600;
+}
+
+/* Exam Session Page */
+.page-exam {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    background: #000;
+}
+
+.camera-container {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    background: #111;
+}
+
+.camera-feed {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.exam-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    padding: 1rem;
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+.exam-stats {
+    display: flex;
+    justify-content: space-between;
+    pointer-events: auto;
+}
+
+.stat-pill {
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(8px);
+    padding: 0.5rem 1rem;
+    border-radius: var(--radius-full);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    border: 1px solid var(--border-color);
+}
+
+.risk-gauge {
+    width: 120px;
+    height: 120px;
+    margin: 0 auto;
+    position: relative;
+}
+
+/* Proctor Page */
+.monitoring-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+}
+
+.student-card {
+    padding: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.student-mini-cam {
+    aspect-ratio: 4/3;
+    background: #000;
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+}
+
+.risk-bar {
+    height: 4px;
+    width: 100%;
+    background: var(--bg-tertiary);
+    border-radius: var(--radius-full);
+    overflow: hidden;
+}
+
+.risk-bar__fill {
+    height: 100%;
+    background: var(--state-clear);
+    transition: width 0.3s ease;
+}
+
+/* Page Transitions */
+.page-enter {
+    animation: fadeIn 0.3s ease-out;
+}
