@@ -1,4 +1,4 @@
-# AI Proctor — Intelligent Exam Proctoring System
+# WADJET - AI Proctor — Intelligent Exam Proctoring System
 
 An AI-powered exam proctoring platform built for colleges and universities. Monitors students in real time during online exams using computer vision, audio analysis, and browser-level detection. Flags violations, escalates threats, and gives invigilators a live dashboard to act on.
 
